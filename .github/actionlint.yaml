@@ -1,0 +1,10 @@
+# actionlint config — https://github.com/rhysd/actionlint/blob/main/docs/config.md
+# Run by `task lint` and the CI audit job (rhysd/actionlint image, bundles shellcheck).
+
+# GitHub-hosted runners only; any other runs-on label is an error.
+self-hosted-runner:
+  labels: []
+
+# No repository/org variables are used: any `vars.X` reference is an error, so a typo or a
+# variable nobody created fails here rather than expanding to "" at runtime.
+config-variables: []

@@ -1,0 +1,46 @@
+name: Release
+
+# main → :latest + :sha-<short>; tag vX.Y.Z → :X.Y.Z + :X.Y. Multi-arch via QEMU. The
+# build-push action attaches an SPDX SBOM per platform, attests provenance and cosign-signs
+# the index digest (keyless, OIDC), which covers the SBOMs too.
+# Pushes with the workflow's GITHUB_TOKEN: no secrets to configure.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write       # push to ghcr.io
+      id-token: write       # cosign keyless signing + attestation
+      attestations: write   # build-provenance attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/build-push
+        with:
+          image-name: ghcr.io/${{ github.repository }}
+          platforms: linux/amd64,linux/arm64
+          push: "true"
+          sbom: "true"
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          cache-scope: release
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,enable=${{ github.ref_type == 'branch' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}

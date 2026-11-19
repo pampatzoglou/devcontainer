@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Same checks as `task audit`, without go-task.
+      - run: ./scripts/validate.sh
+      # Bundles hadolint 2.15.1; the image ships HADOLINT_VERSION (bump both together).
+      - uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: Dockerfile
+      # Config in .github/actionlint.yaml; same image as `task lint`.
+      - name: actionlint
+        uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        with:
+          args: -color
+
+  # Native runner per arch: no QEMU, and each arch's hash pins are exercised. Build only.
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: audit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      security-events: write   # SARIF upload to code scanning
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # platforms == linux/amd64 skips QEMU; on the arm runner arm64 is native, so the
+      # action's QEMU step is a harmless no-op there.
+      - uses: ./.github/actions/build-push
+        with:
+          image-name: ghcr.io/${{ github.repository }}
+          push: "false"
+          load: "true"   # into the runner's docker, for the scan below
+          platforms: linux/${{ matrix.arch }}
+          cache-scope: ci-${{ matrix.arch }}
+      # Two scans of the same image (the action's default tag rules always include
+      # sha-<full commit>). Report first, so findings reach the Security tab even when the
+      # gate fails:
+      #   report  os + library, fixable CRITICAL/HIGH → SARIF, never fails the job. Most hits
+      #           are in upstream release binaries (Go stdlib, vendored deps): only fixable
+      #           by bumping the tool once upstream ships a rebuild.
+      #   gate    Ubuntu packages only, fixable CRITICAL/HIGH → fails the job. Fixable here:
+      #           Dependabot's base-image bumps.
+      # scanners: vuln only; secret scanning flags test keys shipped in upstream trees.
+      - name: Trivy report (SARIF)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PKG_TYPES: os,library
+        with:
+          version: v0.76.2   # Dockerfile: TRIVY_VERSION
+          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          scanners: vuln
+          format: sarif
+          output: trivy-${{ matrix.arch }}.sarif
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
+      # Fork PRs get a read-only token and can't upload; their gate below still runs.
+      - name: Upload SARIF
+        if: >-
+          !cancelled() && (github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy-${{ matrix.arch }}.sarif
+          category: trivy-${{ matrix.arch }}
+      - name: Trivy gate (OS packages)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PKG_TYPES: os
+        with:
+          version: v0.76.2   # Dockerfile: TRIVY_VERSION
+          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH

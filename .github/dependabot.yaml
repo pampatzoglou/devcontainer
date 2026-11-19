@@ -1,0 +1,21 @@
+version: 2
+
+# Not covered by Dependabot, bumped by hand: the tool ARGs in the Dockerfile (`task pin`),
+# pre-commit.lock (`task lock`) and the actionlint image digest (Taskfile + default.yaml).
+updates:
+  # Workflows, and the composite action: Dependabot only scans .github/actions/* when listed.
+  # One grouped PR per week instead of one per action.
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/*"]
+    schedule: { interval: weekly }
+    cooldown: { default-days: 3 }
+    commit-message: { prefix: ci }
+    groups:
+      github-actions: { patterns: ["*"] }
+
+  # FROM line in the Dockerfile (tag + multi-arch index digest).
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 3 }
+    commit-message: { prefix: build }
