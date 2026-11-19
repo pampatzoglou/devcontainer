@@ -95,11 +95,17 @@ guide when AWS renews it.
 
 Pin consumers to `X.Y.Z` (or a digest), not `latest`.
 
-CI (`.github/workflows/default.yaml`) runs `scripts/validate.sh`, hadolint and actionlint, then a native build per arch that
-Trivy scans for fixable CRITICAL/HIGH vulnerabilities. Only Ubuntu packages fail the job (the
-base-image digest fixes those); everything, including the upstream tool binaries, is uploaded
-as SARIF to the repo's Security → Code scanning tab.
-`release.yaml` builds both arches through the `.github/actions/build-push` composite
-(buildx + `docker/metadata-action` tags/labels, GHA layer cache), pushes to GHCR, attaches a
-signed build-provenance attestation and cosign-signs the index digest. The first push creates the GHCR package as private; make
-it public in the package settings if consumers should pull anonymously.
+CI (`.github/workflows/default.yaml`) runs `scripts/validate.sh`, hadolint and actionlint,
+then a native build per arch that Trivy scans for fixable CRITICAL/HIGH vulnerabilities. Only
+Ubuntu packages fail the job (the base-image digest fixes those); everything, including the
+upstream tool binaries, is uploaded as SARIF to the repo's Security → Code scanning tab.
+
+`release.yaml` builds each arch on its own native runner (`ubuntu-24.04`, `ubuntu-24.04-arm`;
+no QEMU) through `.github/actions/build-push`, pushing it untagged by digest with an SPDX
+SBOM. `.github/actions/merge-push` then combines the digests into one multi-arch index, tags
+it, and `.github/actions/attest-sign` attaches a signed build-provenance attestation and
+cosign-signs the index digest, which covers both platforms and their SBOMs. Both workflows
+share the per-arch GHA layer cache.
+
+The first push creates the GHCR package as private; make it public in the package settings
+if consumers should pull anonymously.

@@ -50,15 +50,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # platforms == linux/amd64 skips QEMU; on the arm runner arm64 is native, so the
-      # action's QEMU step is a harmless no-op there.
+      # A single native platform: the action skips QEMU.
       - uses: ./.github/actions/build-push
         with:
           image-name: ghcr.io/${{ github.repository }}
           push: "false"
           load: "true"   # into the runner's docker, for the scan below
           platforms: linux/${{ matrix.arch }}
-          cache-scope: ci-${{ matrix.arch }}
+          cache-scope: build-${{ matrix.arch }}   # shared with the release build
       # Two scans of the same image (the action's default tag rules always include
       # sha-<full commit>). Report first, so findings reach the Security tab even when the
       # gate fails:

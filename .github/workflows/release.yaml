@@ -1,8 +1,10 @@
 name: Release
 
-# main → :latest + :sha-<short>; tag vX.Y.Z → :X.Y.Z + :X.Y. Multi-arch via QEMU. The
-# build-push action attaches an SPDX SBOM per platform, attests provenance and cosign-signs
-# the index digest (keyless, OIDC), which covers the SBOMs too.
+# main → :latest + :sha-<short>; tag vX.Y.Z → :X.Y.Z + :X.Y.
+# Each arch builds on its own native runner (no QEMU: emulated TLS handshakes are slow enough
+# that release servers drop them) and pushes untagged by digest, with an SPDX SBOM. The merge
+# job combines the digests into one multi-arch index, tags it, attests provenance and
+# cosign-signs the index digest (keyless, OIDC), which covers both platforms and their SBOMs.
 # Pushes with the workflow's GITHUB_TOKEN: no secrets to configure.
 on:
   push:
@@ -17,28 +19,74 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
 jobs:
-  publish:
-    name: Publish
+  build:
+    name: Build (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write   # push to ghcr.io
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: build
+        uses: ./.github/actions/build-push
+        with:
+          image-name: ${{ env.IMAGE }}
+          platforms: linux/${{ matrix.arch }}
+          push: "true"
+          push-by-digest: "true"
+          sbom: "true"
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          cache-scope: build-${{ matrix.arch }}   # shared with CI's build of the same arch
+      - name: Record digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ $DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "bad digest '$DIGEST'" >&2; exit 1; }
+          mkdir -p digests && touch "digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge, tag and sign
+    needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      packages: write       # push to ghcr.io
+      packages: write       # push the index to ghcr.io
       id-token: write       # cosign keyless signing + attestation
       attestations: write   # build-provenance attestation
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/build-push
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          image-name: ghcr.io/${{ github.repository }}
-          platforms: linux/amd64,linux/arm64
-          push: "true"
-          sbom: "true"
+          pattern: digest-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/digests
+      - uses: ./.github/actions/merge-push
+        with:
+          image-name: ${{ env.IMAGE }}
+          digests-dir: ${{ runner.temp }}/digests
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
-          cache-scope: release
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-,enable=${{ github.ref_type == 'branch' }}

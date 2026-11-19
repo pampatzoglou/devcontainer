@@ -1,0 +1,103 @@
+name: "Merge and push"
+description: >-
+  Combine per-platform images pushed by build-push (push-by-digest) into one multi-arch index,
+  tag it, then attest and cosign-sign the index digest. Per-platform attestations (SBOMs,
+  BuildKit provenance) carry over into the index. The calling job needs `packages: write`,
+  `id-token: write` and `attestations: write`.
+inputs:
+  image-name:
+    description: "Image repository without tag, e.g. ghcr.io/owner/project/service"
+    required: true
+  digests-dir:
+    description: "Directory holding one empty file per platform digest, named <hex> (no sha256:)"
+    required: true
+  tags:
+    description: "docker/metadata-action tag rules"
+    default: |
+      type=raw,value=main,enable={{is_default_branch}}
+      type=sha,format=long
+  registry:
+    description: "Registry to log in to"
+    default: "ghcr.io"
+  registry-username:
+    description: "Registry username"
+    default: ""
+  registry-password:
+    description: "Registry password or token"
+    default: ""
+
+outputs:
+  image:
+    description: "Pushed index pinned by digest (<image-name>@<digest>)"
+    value: ${{ format('{0}@{1}', inputs.image-name, steps.index.outputs.digest) }}
+  digest:
+    description: "Index digest (sha256:...)"
+    value: ${{ steps.index.outputs.digest }}
+  tags:
+    description: "Newline-separated tags applied to the index"
+    value: ${{ steps.meta.outputs.tags }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.registry-username }}
+        password: ${{ inputs.registry-password }}
+
+    # Same labels as build-push, emitted as index-level annotations: registries (GHCR's
+    # package page included) read a multi-arch image's metadata from its index.
+    - id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      env:
+        DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+      with:
+        images: ${{ inputs.image-name }}
+        tags: ${{ inputs.tags }}
+        labels: |
+          maintainer=${{ github.repository_owner }}
+          org.opencontainers.image.title=${{ github.repository }}
+          org.opencontainers.image.description=${{ inputs.image-name }}
+          org.opencontainers.image.vendor=${{ github.repository_owner }}
+
+    - id: index
+      shell: bash
+      working-directory: ${{ inputs.digests-dir }}
+      env:
+        IMAGE: ${{ inputs.image-name }}
+        META: ${{ steps.meta.outputs.json }}
+      run: |
+        set -euo pipefail
+        args=()
+        while IFS= read -r t; do
+          args+=(--tag "$t")
+        done < <(jq -r '.tags[]' <<<"$META")
+        while IFS= read -r a; do
+          args+=(--annotation "$a")
+        done < <(jq -r '.annotations[]' <<<"$META")
+        [[ " ${args[*]-} " == *" --tag "* ]] \
+          || { echo "merge-push: no tags from the rules" >&2; exit 1; }
+        srcs=()
+        for f in *; do
+          [[ $f =~ ^[0-9a-f]{64}$ ]] || { echo "merge-push: unexpected file '$f'" >&2; exit 1; }
+          srcs+=("$IMAGE@sha256:$f")
+        done
+        (( ${#srcs[@]} > 0 )) || { echo "merge-push: no digests in $PWD" >&2; exit 1; }
+        docker buildx imagetools create "${args[@]}" "${srcs[@]}"
+        first=$(jq -r '.tags[0]' <<<"$META")
+        # {{.Manifest.Digest}} is not a valid field here (buildx falls back to the full
+        # human-readable output); the JSON manifest descriptor carries the digest.
+        digest=$(docker buildx imagetools inspect "$first" --format '{{json .Manifest}}' \
+          | jq -r .digest)
+        [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] \
+          || { echo "merge-push: bad digest '$digest'" >&2; exit 1; }
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
+        docker buildx imagetools inspect "$IMAGE@$digest"
+
+    - uses: ./.github/actions/attest-sign
+      with:
+        image-name: ${{ inputs.image-name }}
+        digest: ${{ steps.index.outputs.digest }}
