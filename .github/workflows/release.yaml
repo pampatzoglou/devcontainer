@@ -1,6 +1,6 @@
 name: Release
 
-# main → :latest + :sha-<short>; tag vX.Y.Z → :X.Y.Z + :X.Y.
+# main → :latest + :<short sha>; tag vX.Y.Z → :X.Y.Z + :X.Y.
 # Each arch builds on its own native runner (no QEMU: emulated TLS handshakes are slow enough
 # that release servers drop them) and pushes untagged by digest, with an SPDX SBOM. The merge
 # job combines the digests into one multi-arch index, tags it, attests provenance and
@@ -89,6 +89,6 @@ jobs:
           registry-password: ${{ secrets.GITHUB_TOKEN }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=sha-,enable=${{ github.ref_type == 'branch' }}
+            type=sha,prefix=,enable=${{ github.ref_type == 'branch' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

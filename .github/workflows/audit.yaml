@@ -1,0 +1,78 @@
+name: Audit
+
+# Rescans the published image against today's vulnerability DB: CVEs disclosed after a release
+# don't fail any build, so nothing else would surface them. Same two scans as CI's build job
+# (report → SARIF, gate on fixable Ubuntu packages), run on each platform of the index. A
+# failed gate usually means a rebuild picks up the fix (base bump, or an apt upgrade — see the
+# Dockerfile's final stage).
+on:
+  schedule:
+    - cron: "17 5 * * *"   # daily, off the hour to dodge the scheduler's top-of-hour backlog
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to scan (latest, X.Y.Z, <short sha>)"
+        default: latest
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag || 'latest' }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Scan (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-24.04   # remote scan, no build: any runner can read either platform
+    permissions:
+      contents: read
+      packages: read           # pull from ghcr.io (needed while the package is private)
+      security-events: write   # SARIF upload to code scanning
+    env:
+      IMAGE_REF: ghcr.io/${{ github.repository }}:${{ inputs.tag || 'latest' }}
+      TRIVY_PLATFORM: linux/${{ matrix.arch }}
+    steps:
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Own category: a manual scan of an older tag must not replace CI's results for main.
+      - name: Trivy report (SARIF)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PKG_TYPES: os,library
+        with:
+          version: v0.76.2   # Dockerfile: TRIVY_VERSION
+          image-ref: ${{ env.IMAGE_REF }}
+          scanners: vuln
+          format: sarif
+          output: trivy-${{ matrix.arch }}.sarif
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
+      - name: Upload SARIF
+        if: ${{ !cancelled() }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy-${{ matrix.arch }}.sarif
+          category: trivy-audit-${{ matrix.arch }}
+      - name: Trivy gate (OS packages)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PKG_TYPES: os
+        with:
+          version: v0.76.2   # Dockerfile: TRIVY_VERSION
+          image-ref: ${{ env.IMAGE_REF }}
+          scanners: vuln
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH

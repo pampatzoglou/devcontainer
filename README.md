@@ -1,5 +1,8 @@
 # devcontainer
 
+[![Release](https://github.com/pampatzoglou/devcontainer/actions/workflows/release.yaml/badge.svg?branch=main)](https://github.com/pampatzoglou/devcontainer/actions/workflows/release.yaml)
+[![Audit](https://github.com/pampatzoglou/devcontainer/actions/workflows/audit.yaml/badge.svg)](https://github.com/pampatzoglou/devcontainer/actions/workflows/audit.yaml)
+
 A general-purpose dev container image for platform work, published (multi-arch,
 cosign-signed) to `ghcr.io/pampatzoglou/devcontainer`.
 
@@ -199,7 +202,7 @@ guide when AWS renews it.
 
 | Trigger | Tags pushed |
 |---|---|
-| push to `main` | `latest`, `sha-<short>` |
+| push to `main` | `latest`, `<short sha>` (e.g. `d9dccfd`) |
 | tag `vX.Y.Z` | `X.Y.Z`, `X.Y` |
 
 Pin consumers to `X.Y.Z` (or a digest), not `latest`.
@@ -209,6 +212,10 @@ shellcheck,
 then a native build per arch that Trivy scans for fixable CRITICAL/HIGH vulnerabilities. Only
 Ubuntu packages fail the job (the base-image digest fixes those); everything, including the
 upstream tool binaries, is uploaded as SARIF to the repo's Security → Code scanning tab.
+
+`audit.yaml` runs the same two scans daily (05:17 UTC) against the published `latest`, both
+platforms, to catch CVEs disclosed after a release; run it by hand (Actions → Audit → Run
+workflow) to scan any other tag. A failed gate means a rebuild is due.
 
 `release.yaml` builds each arch on its own native runner (`ubuntu-24.04`, `ubuntu-24.04-arm`;
 no QEMU) through `.github/actions/build-push`, pushing it untagged by digest with an SPDX

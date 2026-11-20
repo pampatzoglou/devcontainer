@@ -432,9 +432,13 @@ FROM base AS devcontainer
 # ipset, dnsutils (dig) and aggregate are for the opt-in egress firewall (init-firewall);
 # iptables and iproute2 ship in the base. direnv from the archive too: upstream publishes no
 # checksums to pin against.
+# linux-libc-dev (kernel headers, pulled in by the base's libc6-dev) is listed so apt upgrades
+# it from the security archive: every kernel CVE lands on it, failing the Trivy gate until
+# upstream rebuilds the base. Drop it once the base ships the fixed version.
 # hadolint ignore=DL3008
 RUN apt-get update \
  && apt-get install -y --no-install-recommends vim direnv ipset dnsutils aggregate \
+      linux-libc-dev \
  && rm -rf /var/lib/apt/lists/*
 # direnv hooks for every interactive shell. An .envrc still needs `direnv allow` once per
 # checkout: nothing in a cloned repo runs unapproved. Single quotes: written literally, expanded
