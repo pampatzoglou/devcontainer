@@ -21,10 +21,15 @@ tasks:
       - DOCKERFILE={{.DOCKERFILE}} LOCK={{.LOCK}} ./scripts/validate.sh
 
   lint:
-    desc: Lint the Dockerfile and the GitHub workflows/actions
+    desc: Lint the Dockerfile, the shell scripts and the GitHub workflows/actions
     cmds:
       - hadolint {{.DOCKERFILE}}
       - docker run --rm -v "$PWD:/repo:ro" -w /repo {{.ACTIONLINT_IMAGE}} -color
+      # shellcheck bundled in the actionlint image: one pinned image for both.
+      - >-
+        docker run --rm -v "$PWD:/repo:ro" -w /repo --entrypoint shellcheck
+        {{.ACTIONLINT_IMAGE}}
+        image/init-firewall.sh image/claude-default-plugins.sh scripts/validate.sh
 
   audit:
     desc: Full pre-merge gate — validate, lint

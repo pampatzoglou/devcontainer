@@ -31,6 +31,12 @@ jobs:
         uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
           args: -color
+      # shellcheck bundled in the same image; same files as `task lint`.
+      - name: shellcheck
+        uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        with:
+          entrypoint: shellcheck
+          args: image/init-firewall.sh image/claude-default-plugins.sh scripts/validate.sh
 
   # Native runner per arch: no QEMU, and each arch's hash pins are exercised. Build only.
   build:

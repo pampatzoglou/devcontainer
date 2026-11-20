@@ -3,13 +3,13 @@
 # hadolint global ignore=SC2086
 # A general-purpose devcontainer image, published to ghcr.io/pampatzoglou/devcontainer.
 # Plain buildx (`task build`; .github/actions/build-push in CI); no devcontainer features are
-# installed. The devcontainer settings consumers inherit are the devcontainer.metadata LABEL at
-# the end of the final stage.
+# installed (language toolchains are opt-in features; see README). The devcontainer settings
+# consumers inherit are the devcontainer.metadata LABEL at the end of the final stage.
 #
 # Every download is checked against the committed <TOOL>_SHA256_<ARCH> ARGs below it, never
 # against upstream's sums file at build time. After bumping a version, `task pin` refreshes
 # them; a stale hash fails the build by name. The AWS CLI is checked by GPG signature instead
-# (it publishes no sums), python by uv, the rust toolchain by rustup.
+# (it publishes no sums), python by uv.
 #
 # One stage per tool: fetched in parallel, cached independently; COPY --link keeps a version
 # bump from invalidating the other layers.
@@ -20,6 +20,9 @@
 ARG TASK_VERSION=3.53.1
 ARG TASK_SHA256_AMD64=a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
 ARG TASK_SHA256_ARM64=e3ad19101493a0112e1f22ae8ccc54bf03e533b1076a0ca1e6c782a09ad2e588
+ARG JUST_VERSION=1.59.0
+ARG JUST_SHA256_AMD64=409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e
+ARG JUST_SHA256_ARM64=23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d
 ARG JQ_VERSION=1.8.2
 ARG JQ_SHA256_AMD64=b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
 ARG JQ_SHA256_ARM64=8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309
@@ -44,24 +47,21 @@ ARG SKAFFOLD_SHA256_ARM64=416f5fed2009c2b4adc62ae887ee5fc19ff08cc8a0250b81d8682d
 ARG KUBECONFORM_VERSION=0.8.0
 ARG KUBECONFORM_SHA256_AMD64=9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
 ARG KUBECONFORM_SHA256_ARM64=1f53fc8e81258197a35e8603054162a5af1de8c5af13746c71ab680d9534ed87
-ARG KUBESCAPE_VERSION=4.0.20
-ARG KUBESCAPE_SHA256_AMD64=25649b3e1212a86bbd467d3e73812218459455c335fad7aaed7fe458782355c5
-ARG KUBESCAPE_SHA256_ARM64=f50478243f9d1573cd37a4df68b9df3c8f66472d6016e837f059180198875991
 ARG HADOLINT_VERSION=2.14.0
 ARG HADOLINT_SHA256_AMD64=6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47
 ARG HADOLINT_SHA256_ARM64=331f1d3511b84a4f1e3d18d52fec284723e4019552f4f47b19322a53ce9a40ed
+ARG PROMETHEUS_VERSION=3.16.0
+ARG PROMETHEUS_SHA256_AMD64=68727009472a2c02e1ff7f062fd5b3e637285bffc8fc2d340c76fb449d6e0f34
+ARG PROMETHEUS_SHA256_ARM64=fd8571b8162f4020232d886f17340bcf92e1722985ae3b4c1d096157826c0fbe
+ARG ALERTMANAGER_VERSION=0.35.0
+ARG ALERTMANAGER_SHA256_AMD64=6c7752a903c40c8a749e0b29df9240437e4fbb8228068d0af8807377db32addd
+ARG ALERTMANAGER_SHA256_ARM64=b7a8a69f849c6f837348b05476195862152f9de8eae338eb36ab29801d341654
 ARG TRIVY_VERSION=0.76.2
 ARG TRIVY_SHA256_AMD64=bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
 ARG TRIVY_SHA256_ARM64=ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3
 ARG K6_VERSION=2.4.0
 ARG K6_SHA256_AMD64=5a5ecf23529ccf93135bc7e5b0c1cd5126ecf5f2672e22eed1556a0ab74abb87
 ARG K6_SHA256_ARM64=7bb415f59d81ad649a86f6da6b3e1bd2e4e64e84909deef13e9bca70608abccb
-ARG JDK_VERSION=21.0.12.1+1
-ARG JDK_SHA256_AMD64=ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94
-ARG JDK_SHA256_ARM64=23e37e026f12f3e706f18938ff611db3032d075b09d0879a25d06718c773e223
-ARG NODE_VERSION=22.23.5
-ARG NODE_SHA256_AMD64=c54118104acc524633b5abe106bbf44a53126ec8b4e5fa105cb92b5d7de8a1a1
-ARG NODE_SHA256_ARM64=8bd3dc69eee8f3f226315a80d7d1d4faccf217a4c8fae500168ac2e38f3bdba3
 ARG UV_VERSION=0.13.7
 ARG UV_SHA256_AMD64=c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
 ARG UV_SHA256_ARM64=71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc
@@ -88,15 +88,13 @@ ARG AWS_CLI_VERSION=2.40.3
 ARG COSIGN_VERSION=3.1.4
 ARG COSIGN_SHA256_AMD64=424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
 ARG COSIGN_SHA256_ARM64=ade83b7aac62e131cacfe96d958948b2150cc9efec46a570a2649b8e27dedad2
-ARG GO_VERSION=1.27.4
-ARG GO_SHA256_AMD64=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
-ARG GO_SHA256_ARM64=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92
-# rustup-init is hash-pinned; the toolchain it installs is checked by rustup against the
-# release's channel manifest (fetched over HTTPS from static.rust-lang.org, not pinned here).
-ARG RUSTUP_VERSION=1.29.3
-ARG RUSTUP_SHA256_AMD64=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55
-ARG RUSTUP_SHA256_ARM64=9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282
-ARG RUST_VERSION=1.100.0
+# Native binary from the `stable` channel (downloads.claude.ai/claude-code-releases/stable).
+ARG CLAUDE_CODE_VERSION=2.1.311
+ARG CLAUDE_CODE_SHA256_AMD64=86dc1fcc69498159eaf15f446613e847010f9036bfbbdffd4c49350be8489ada
+ARG CLAUDE_CODE_SHA256_ARM64=2e2496c9a8065df93acb0fca2d341f59a6b8777649b2e025ab8c9bcd5eef61f3
+# Claude Code plugin marketplace (skills + persona commands), pinned to a commit; bumped by
+# hand: gh api repos/pampatzoglou/mentor/commits/main -q .sha
+ARG MENTOR_SHA=a43aa19ad0955760c680b1dd3ffe8d6e7eaf4454
 # AWS signs the CLI with GPG and publishes no checksums. keys/aws-cli.asc is the key from the
 # AWS CLI install guide; this fingerprint must match it. AWS renews the key in place
 # (current expiry 2027-07-01): re-copy it from the guide when it expires.
@@ -131,6 +129,8 @@ retry-all-errors
 EOF
 
 # fetch <NAME> <base-url> <asset> <sums-asset> [sha256-field] -> path of a verified download.
+# <sums-asset> may be a full https:// URL when it lives outside <base-url>; a *.json one is a
+# release manifest whose .platforms[<sha256-field>].checksum holds the hash (claude-code).
 # Checks the download against the committed ${NAME}_SHA256_<ARCH> ARG only: the upstream sums
 # file is not read, so a release swapped after pinning (asset and sums together) fails here.
 # PIN_MODE=1 (`task pin`) instead reads the hash from the sums file, checks the
@@ -143,8 +143,11 @@ var=${tool}_SHA256_${TARGETARCH^^}
 out=$(mktemp -d)/$name
 curl -K /etc/fetch.curlrc -o "$out" "$base/$name"
 if [[ ${PIN_MODE:-} == 1 ]]; then
-  s=$(curl -K /etc/fetch.curlrc "$base/$sums")
-  if [[ -n $field ]]; then                  # multi-hash table (yq)
+  [[ $sums == https://* ]] || sums=$base/$sums
+  s=$(curl -K /etc/fetch.curlrc "$sums")
+  if [[ $sums == *.json ]]; then             # release manifest (claude-code)
+    want=$(jq -r --arg p "$field" '.platforms[$p].checksum // empty' <<<"$s")
+  elif [[ -n $field ]]; then                 # multi-hash table (yq)
     want=$(awk -v n="$name" -v f="$field" '$1==n {print $f}' <<<"$s")
   elif [[ $s =~ ^[0-9a-f]{64}$ ]]; then      # bare hash (kubectl)
     want=$s
@@ -175,6 +178,14 @@ ARG TASK_SHA256_AMD64
 ARG TASK_SHA256_ARM64
 RUN f=$(fetch TASK $GH/go-task/task/releases/download/v$TASK_VERSION task_linux_$TARGETARCH.tar.gz task_checksums.txt) \
  && tar -xzf "$f" -C /out task
+
+FROM fetcher AS just
+ARG JUST_VERSION
+ARG JUST_SHA256_AMD64
+ARG JUST_SHA256_ARM64
+RUN n=just-$JUST_VERSION-$(arch-of x86_64 aarch64)-unknown-linux-musl.tar.gz \
+ && f=$(fetch JUST $GH/casey/just/releases/download/$JUST_VERSION $n SHA256SUMS) \
+ && tar -xzf "$f" -C /out just
 
 FROM fetcher AS jq
 ARG JQ_VERSION
@@ -235,13 +246,6 @@ ARG KUBECONFORM_SHA256_ARM64
 RUN f=$(fetch KUBECONFORM $GH/yannh/kubeconform/releases/download/v$KUBECONFORM_VERSION kubeconform-linux-$TARGETARCH.tar.gz CHECKSUMS) \
  && tar -xzf "$f" -C /out kubeconform
 
-FROM fetcher AS kubescape
-ARG KUBESCAPE_VERSION
-ARG KUBESCAPE_SHA256_AMD64
-ARG KUBESCAPE_SHA256_ARM64
-RUN f=$(fetch KUBESCAPE $GH/kubescape/kubescape/releases/download/v$KUBESCAPE_VERSION kubescape_${KUBESCAPE_VERSION}_linux_$TARGETARCH checksums.sha256) \
- && install -m755 "$f" /out/kubescape
-
 FROM fetcher AS hadolint
 ARG HADOLINT_VERSION
 ARG HADOLINT_SHA256_AMD64
@@ -249,6 +253,24 @@ ARG HADOLINT_SHA256_ARM64
 RUN n=hadolint-linux-$(arch-of x86_64 arm64) \
  && f=$(fetch HADOLINT $GH/hadolint/hadolint/releases/download/v$HADOLINT_VERSION $n $n.sha256) \
  && install -m755 "$f" /out/hadolint
+
+# promtool only (rule/config checks and rule unit tests), not the server.
+FROM fetcher AS promtool
+ARG PROMETHEUS_VERSION
+ARG PROMETHEUS_SHA256_AMD64
+ARG PROMETHEUS_SHA256_ARM64
+RUN n=prometheus-$PROMETHEUS_VERSION.linux-$TARGETARCH \
+ && f=$(fetch PROMETHEUS $GH/prometheus/prometheus/releases/download/v$PROMETHEUS_VERSION $n.tar.gz sha256sums.txt) \
+ && tar -xzf "$f" -C /out --strip-components=1 $n/promtool
+
+# amtool only (config checks, routing tests, silences), not the server.
+FROM fetcher AS amtool
+ARG ALERTMANAGER_VERSION
+ARG ALERTMANAGER_SHA256_AMD64
+ARG ALERTMANAGER_SHA256_ARM64
+RUN n=alertmanager-$ALERTMANAGER_VERSION.linux-$TARGETARCH \
+ && f=$(fetch ALERTMANAGER $GH/prometheus/alertmanager/releases/download/v$ALERTMANAGER_VERSION $n.tar.gz sha256sums.txt) \
+ && tar -xzf "$f" -C /out --strip-components=1 $n/amtool
 
 FROM fetcher AS trivy
 ARG TRIVY_VERSION
@@ -265,22 +287,6 @@ ARG K6_SHA256_ARM64
 RUN n=k6-v$K6_VERSION-linux-$TARGETARCH \
  && f=$(fetch K6 $GH/grafana/k6/releases/download/v$K6_VERSION $n.tar.gz k6-v$K6_VERSION-checksums.txt) \
  && tar -xzf "$f" -C /out --strip-components=1 $n/k6
-
-FROM fetcher AS jdk
-ARG JDK_VERSION
-ARG JDK_SHA256_AMD64
-ARG JDK_SHA256_ARM64
-RUN n=OpenJDK21U-jdk_$(arch-of x64 aarch64)_linux_hotspot_${JDK_VERSION/+/_}.tar.gz \
- && f=$(fetch JDK "$GH/adoptium/temurin21-binaries/releases/download/jdk-${JDK_VERSION/+/%2B}" $n $n.sha256.txt) \
- && tar -xzf "$f" -C /out --strip-components=1
-
-FROM fetcher AS node
-ARG NODE_VERSION
-ARG NODE_SHA256_AMD64
-ARG NODE_SHA256_ARM64
-RUN n=node-v$NODE_VERSION-linux-$(arch-of x64 arm64) \
- && f=$(fetch NODE https://nodejs.org/dist/v$NODE_VERSION $n.tar.gz SHASUMS256.txt) \
- && tar -xzf "$f" -C /out --strip-components=1 $n/bin $n/include $n/lib $n/share
 
 FROM fetcher AS uv
 ARG UV_VERSION
@@ -353,29 +359,28 @@ ARG COSIGN_SHA256_ARM64
 RUN f=$(fetch COSIGN $GH/sigstore/cosign/releases/download/v$COSIGN_VERSION cosign-linux-$TARGETARCH cosign_checksums.txt) \
  && install -m755 "$f" /out/cosign
 
-FROM fetcher AS go
-ARG GO_VERSION
-ARG GO_SHA256_AMD64
-ARG GO_SHA256_ARM64
-RUN n=go$GO_VERSION.linux-$TARGETARCH.tar.gz \
- && f=$(fetch GO https://dl.google.com/go $n $n.sha256) \
- && tar -xzf "$f" -C /out --strip-components=1
+# A single self-contained binary; no Node. The auto-updater is off in the final stage, so
+# this pin is the version that runs.
+FROM fetcher AS claude
+ARG CLAUDE_CODE_VERSION
+ARG CLAUDE_CODE_SHA256_AMD64
+ARG CLAUDE_CODE_SHA256_ARM64
+RUN b=https://downloads.claude.ai/claude-code-releases/$CLAUDE_CODE_VERSION \
+ && p=$(arch-of linux-x64 linux-arm64) \
+ && f=$(fetch CLAUDE_CODE $b/$p claude $b/manifest.json $p) \
+ && install -m755 "$f" /out/claude
 
-FROM fetcher AS rustup
-ARG RUSTUP_VERSION
-ARG RUSTUP_SHA256_AMD64
-ARG RUSTUP_SHA256_ARM64
-RUN f=$(fetch RUSTUP "https://static.rust-lang.org/rustup/archive/$RUSTUP_VERSION/$(arch-of x86_64 aarch64)-unknown-linux-gnu" rustup-init rustup-init.sha256) \
- && install -m755 "$f" /out/rustup-init
-
-# Minimal profile + the components editors and CI use; rust-analyzer from rustup (checked
-# against the manifest) rather than an editor fetching its own copy at runtime.
-FROM fetcher AS rust
-ARG RUST_VERSION
-ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
-COPY --from=rustup /out/rustup-init /tmp/rustup-init
-RUN /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain "$RUST_VERSION" \
-      --component clippy,rustfmt,rust-analyzer
+# The exact commit, fetched by SHA (git verifies the object graph against it) and checked
+# again after checkout. Shipped as a `directory` marketplace that managed settings declare, so
+# Claude Code loads the plugins in place: no clone at runtime, and no auto-update.
+FROM fetcher AS mentor
+ARG MENTOR_SHA
+# (`task validate` rejects anything but a full 40-hex SHA.)
+RUN git init -q /out \
+ && git -C /out fetch -q --depth 1 https://github.com/pampatzoglou/mentor.git "$MENTOR_SHA" \
+ && git -C /out -c advice.detachedHead=false checkout -q FETCH_HEAD \
+ && test "$(git -C /out rev-parse HEAD)" = "$MENTOR_SHA" \
+ && rm -rf /out/.git
 
 # gpgv against a keyring holding only the pinned key: a signature by any other key fails.
 FROM fetcher AS aws
@@ -396,6 +401,7 @@ RUN n=awscli-exe-linux-$(arch-of x86_64 aarch64)-$AWS_CLI_VERSION.zip \
 # ── pin mode output (`task pin`): one file per hash ARG ──────────
 FROM scratch AS pins
 COPY --from=task /pins/ /
+COPY --from=just /pins/ /
 COPY --from=jq /pins/ /
 COPY --from=yq /pins/ /
 COPY --from=kubectl /pins/ /
@@ -404,12 +410,11 @@ COPY --from=kind /pins/ /
 COPY --from=istioctl /pins/ /
 COPY --from=skaffold /pins/ /
 COPY --from=kubeconform /pins/ /
-COPY --from=kubescape /pins/ /
 COPY --from=hadolint /pins/ /
+COPY --from=promtool /pins/ /
+COPY --from=amtool /pins/ /
 COPY --from=trivy /pins/ /
 COPY --from=k6 /pins/ /
-COPY --from=jdk /pins/ /
-COPY --from=node /pins/ /
 COPY --from=uv /pins/ /
 COPY --from=gh /pins/ /
 COPY --from=terraform /pins/ /
@@ -417,19 +422,28 @@ COPY --from=vault /pins/ /
 COPY --from=cilium /pins/ /
 COPY --from=kubelogin /pins/ /
 COPY --from=cosign /pins/ /
-COPY --from=go /pins/ /
-COPY --from=rustup /pins/ /
+COPY --from=claude /pins/ /
 
 # ── final ───────────────────────────────────────────────────────────────────
 FROM base AS devcontainer
 # The base ships nano and vim-tiny; full vim from Ubuntu's archive (apt checks its signed
 # index). Unversioned on purpose: the archive drops superseded versions, so a pin would break
 # the build at the next security update; the digest-pinned base fixes the package set.
+# ipset, dnsutils (dig) and aggregate are for the opt-in egress firewall (init-firewall);
+# iptables and iproute2 ship in the base. direnv from the archive too: upstream publishes no
+# checksums to pin against.
 # hadolint ignore=DL3008
 RUN apt-get update \
- && apt-get install -y --no-install-recommends vim \
+ && apt-get install -y --no-install-recommends vim direnv ipset dnsutils aggregate \
  && rm -rf /var/lib/apt/lists/*
+# direnv hooks for every interactive shell. An .envrc still needs `direnv allow` once per
+# checkout: nothing in a cloned repo runs unapproved. Single quotes: written literally, expanded
+# by each shell at startup.
+# hadolint ignore=SC2016
+RUN echo 'eval "$(direnv hook bash)"' >> /etc/bash.bashrc \
+ && echo 'eval "$(direnv hook zsh)"' >> /etc/zsh/zshrc
 COPY --link --from=task        /out/ /usr/local/bin/
+COPY --link --from=just        /out/ /usr/local/bin/
 COPY --link --from=jq          /out/ /usr/local/bin/
 COPY --link --from=yq          /out/ /usr/local/bin/
 COPY --link --from=kubectl     /out/ /usr/local/bin/
@@ -438,12 +452,11 @@ COPY --link --from=kind        /out/ /usr/local/bin/
 COPY --link --from=istioctl    /out/ /usr/local/bin/
 COPY --link --from=skaffold    /out/ /usr/local/bin/
 COPY --link --from=kubeconform /out/ /usr/local/bin/
-COPY --link --from=kubescape   /out/ /usr/local/bin/
 COPY --link --from=hadolint    /out/ /usr/local/bin/
+COPY --link --from=promtool    /out/ /usr/local/bin/
+COPY --link --from=amtool      /out/ /usr/local/bin/
 COPY --link --from=trivy       /out/ /usr/local/bin/
 COPY --link --from=k6          /out/ /usr/local/bin/
-COPY --link --from=jdk         /out/ /opt/java/openjdk/
-COPY --link --from=node        /out/ /usr/local/
 COPY --link --from=python      /opt/uv/ /opt/uv/
 COPY --link --from=python      /out/bin/ /usr/local/bin/
 COPY --link --from=gh          /out/ /usr/local/bin/
@@ -454,16 +467,39 @@ COPY --link --from=kubelogin   /out/ /usr/local/bin/
 COPY --link --from=aws         /opt/aws-cli/ /opt/aws-cli/
 COPY --link --from=aws         /out/ /usr/local/bin/
 COPY --link --from=cosign      /out/ /usr/local/bin/
-COPY --link --from=go          /out/ /usr/local/go/
-# Owned by vscode (uid 1000): cargo install, rustup component add and the registry cache
-# write here.
-COPY --link --from=rust --chown=1000:1000 /usr/local/rustup/ /usr/local/rustup/
-COPY --link --from=rust --chown=1000:1000 /usr/local/cargo/ /usr/local/cargo/
-ENV JAVA_HOME=/opt/java/openjdk PATH=/opt/java/openjdk/bin:$PATH
-# GOTOOLCHAIN=local: use this Go, never download the toolchain a go.mod asks for.
-ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo GOTOOLCHAIN=local \
-    PATH=/usr/local/cargo/bin:/usr/local/go/bin:/home/vscode/go/bin:$PATH
+COPY --link --from=claude      /out/ /usr/local/bin/
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python UV_PYTHON_DOWNLOADS=never
+
+# Claude Code. CLAUDE_CONFIG_DIR puts all its state (auth included, which otherwise lands in
+# ~/.claude.json) under one directory, so a single volume keeps it across rebuilds; the dir
+# exists here, owned by vscode, so a fresh named volume mounted over it inherits that owner.
+# DISABLE_AUTOUPDATER: the binary is root-owned and pinned; bump CLAUDE_CODE_VERSION instead.
+ENV CLAUDE_CONFIG_DIR=/home/vscode/.claude DISABLE_AUTOUPDATER=1
+RUN install -d -m 700 -o vscode -g vscode /home/vscode/.claude
+
+# Plugins from the pinned mentor marketplace, on by default with a per-repo opt-out. Managed
+# settings only declare the marketplace; enabling it there would stop repos disabling it.
+# claude-default-plugins (postCreateCommand) enables the plugins in user settings instead,
+# which a repo's .claude/settings.json overrides.
+COPY --link --from=mentor /out/ /opt/claude-marketplaces/mentor/
+COPY <<'EOF' /etc/claude-code/managed-settings.json
+{
+  "extraKnownMarketplaces": {
+    "mentor": {
+      "source": { "source": "directory", "path": "/opt/claude-marketplaces/mentor" }
+    }
+  }
+}
+EOF
+
+COPY --chmod=755 image/claude-default-plugins.sh /usr/local/bin/claude-default-plugins
+
+# Opt-in egress firewall; see the script header and the README. vscode may run it (and only
+# it) through sudo once its blanket sudo rule is gone, which the script removes on first run.
+COPY --chmod=755 image/init-firewall.sh /usr/local/bin/init-firewall
+COPY --chmod=440 <<'EOF' /etc/sudoers.d/vscode-firewall
+vscode ALL=(root) NOPASSWD: /usr/local/bin/init-firewall
+EOF
 
 # ── devcontainer metadata ───────────────────────────────────────────────────
 # Consumers inherit these by referencing the image; their own devcontainer.json overrides them.
@@ -494,14 +530,19 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python UV_PYTHON_DOWNLOADS=never
 # Cloud and cluster logins are OIDC (aws sso, vault oidc, kubectl oidc-login): short-lived
 # tokens obtained inside the container, nothing forwarded.
 #
-# postCreateCommand: repos without a pre-commit config are skipped, not failed.
+# postCreateCommand: repos without a pre-commit config are skipped, not failed. A consuming
+# repo's own postCreateCommand runs as well, not instead (lifecycle commands from every
+# metadata layer run).
 LABEL devcontainer.metadata='[{ \
   "remoteUser": "vscode", \
   "portsAttributes": { \
     "8000": { "label": "kubelogin OIDC callback", "requireLocalPort": true, "onAutoForward": "silent" }, \
     "8250": { "label": "vault OIDC callback", "requireLocalPort": true, "onAutoForward": "silent" } \
   }, \
-  "postCreateCommand": "if [ -f .pre-commit-config.yaml ]; then pre-commit install --install-hooks; else echo \"no .pre-commit-config.yaml; skipping pre-commit install\"; fi", \
+  "postCreateCommand": { \
+    "pre-commit": "if [ -f .pre-commit-config.yaml ]; then pre-commit install --install-hooks; else echo \"no .pre-commit-config.yaml; skipping pre-commit install\"; fi", \
+    "claude-plugins": "claude-default-plugins" \
+  }, \
   "remoteEnv": { \
     "SSH_AUTH_SOCK": "", \
     "GIT_CONFIG_NOSYSTEM": "1", \
@@ -511,6 +552,7 @@ LABEL devcontainer.metadata='[{ \
   }, \
   "customizations": { \
     "vscode": { \
+      "extensions": ["anthropic.claude-code", "mkhl.direnv"], \
       "settings": { "git.terminalAuthentication": false, "github.gitAuthentication": false } \
     } \
   } \
