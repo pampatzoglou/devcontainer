@@ -104,7 +104,7 @@ ARG AWS_CLI_SIGNER_FPR=FB5DB77FD5C118B80511ADA8A6310ACC4672475C
 # Tag + multi-arch index digest, written out literally so Dependabot can bump both
 # (docker ecosystem, /). Upstream's `ubuntu-24.04` tag is abandoned (last built
 # 2025-10-16); `<version>-ubuntu24.04` is the maintained one.
-FROM mcr.microsoft.com/devcontainers/base:3.0.13-ubuntu24.04@sha256:48be4adec1c1ecbe030064700aef85382f5205786a8f82937fc44a7473717eae AS base
+FROM mcr.microsoft.com/devcontainers/base:3.0.14-ubuntu24.04@sha256:88171bb581e19bbb45db77a16a3a5475e2f9ddce025b044c2e5a69a6a1e24fa1 AS base
 
 # ── shared fetch stage ──────────────────────────────────────────────────────
 FROM base AS fetcher
